@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TIMDR-Robot Dashboard</title>
+<!-- Chart.js jest wektorowany LOKALNIE (nie z CDN) - lekcja z fusion-tools
+     i SYNOPTYK-ARCTIC: na sieciach firmowych z restrykcjami (Device Guard
+     i podobne) request do cdnjs.cloudflare.com potrafi cicho zawiesc, a
+     wtedy `Chart` nigdy nie powstaje i caly dashboard wyglada jakby byl
+     zepsuty. -->
+<script src="/static/vendor/chart.umd.js"></script>
+<style>
+  :root {
+    --ok: #2e7d32;
+    --suspect: #f9a825;
+    --resonance: #ef6c00;
+    --defect: #c62828;
+    --bg: #0f1115;
+    --panel: #1a1d24;
+    --text: #e6e6e6;
+    --muted: #9aa0a6;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    margin: 0;
+    padding: 24px;
+  }
+  h1 { margin: 0 0 4px 0; font-size: 22px; }
+  .subtitle { color: var(--muted); margin-bottom: 16px; }
+  #global-error {
+    display: none;
+    background: #3a1f1f;
+    border: 1px solid var(--defect);
+    color: #ffb4b4;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+  #summary {
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    font-size: 14px;
+  }
+  .disclaimer {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 6px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 14px 16px;
+    border-left: 5px solid var(--muted);
+  }
+  .card.OK { border-left-color: var(--ok); }
+  .card.SUSPECT { border-left-color: var(--suspect); }
+  .card.RESONANCE { border-left-color: var(--resonance); }
+  .card.DEFECT { border-left-color: var(--defect); }
+  .card h3 { margin: 0 0 6px 0; display: flex; justify-content: space-between; align-items: center; }
+  .badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 12px;
+    color: #fff;
+  }
+  .badge.OK { background: var(--ok); }
+  .badge.SUSPECT { background: var(--suspect); color: #1a1d24; }
+  .badge.RESONANCE { background: var(--resonance); }
+  .badge.DEFECT { background: var(--defect); }
+  .desc { font-size: 13px; color: var(--muted); margin: 6px 0 10px 0; }
+  canvas { max-height: 160px; }
+  .section-title { margin: 28px 0 10px 0; font-size: 16px; }
+  #reaction-log, #negative-control {
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  #reaction-log div { padding: 2px 0; border-bottom: 1px solid #2a2d34; }
+  button {
+    background: #2a2d34;
+    color: var(--text);
+    border: 1px solid #3a3d44;
+    border-radius: 6px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button:hover { background: #3a3d44; }
+</style>
+</head>
+<body>
+  <h1>TIMDR-Robot — dashboard (dane SYNTETYCZNE)</h1>
+  <div class="subtitle">Scenariusz demonstracyjny: ramie 6-osiowe, os 3 z wstrzykniętym rosnacym luzem (backlash) &nbsp;·&nbsp; <button onclick="loadAll()">Odswiez</button></div>
+  <div id="global-error"></div>
+  <div id="summary">Ladowanie...</div>
+
+  <div class="grid" id="axes-grid"></div>
+
+  <div class="section-title">Log reakcji ControlBridge (symulowane, bez prawdziwego I/O do sprzetu)</div>
+  <div id="reaction-log">Ladowanie...</div>
+
+  <div class="section-title">Negative control (test poczytalnosci na czystej osi)</div>
+  <div id="negative-control">Ladowanie...</div>
+
+<script>
+const _sectionErrors = {};
+const _charts = {};
+
+function _showGlobalError() {
+  const el = document.getElementById("global-error");
+  const msgs = Object.entries(_sectionErrors).map(([label, msg]) => `${label}: ${msg}`);
+  if (msgs.length === 0) { el.style.display = "none"; return; }
+  el.style.display = "block";
+  el.textContent = "⚠️ " + msgs.join(" · ");
+}
+
+async function getJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url} -> HTTP ${r.status}`);
+  return r.json();
+}
+
+async function loadSection(fn, label) {
+  try {
+    await fn();
+    delete _sectionErrors[label];
+  } catch (e) {
+    console.error(`[TIMDR-Robot] Blad w sekcji "${label}":`, e);
+    _sectionErrors[label] = e.message || String(e);
+  }
+  _showGlobalError();
+}
+
+function renderSummary(data) {
+  document.getElementById("summary").innerHTML =
+    `<div>${data.summary}</div><div class="disclaimer">${data.disclaimer}</div>`;
+}
+
+function renderAxesGrid(data) {
+  const grid = document.getElementById("axes-grid");
+  grid.innerHTML = "";
+  for (const [axisId, axis] of Object.entries(data.axes)) {
+    const card = document.createElement("div");
+    card.className = `card ${axis.level}`;
+    card.innerHTML = `
+      <h3>${axisId} <span class="badge ${axis.level}">${axis.level}</span></h3>
+      <div class="desc">${axis.description}</div>
+      <canvas id="chart-${axisId}"></canvas>
+    `;
+    grid.appendChild(card);
+  }
+  for (const axisId of Object.keys(data.axes)) {
+    loadSection(() => renderAxisChart(axisId), `Wykres ${axisId}`);
+  }
+}
+
+async function renderAxisChart(axisId) {
+  const data = await getJSON(`/api/axis/${axisId}`);
+  const ctx = document.getElementById(`chart-${axisId}`);
+  if (!ctx) return;
+  if (typeof Chart === "undefined") {
+    throw new Error("Biblioteka Chart.js sie nie zaladowala (sprawdz /static/vendor/chart.umd.js)");
+  }
+  if (_charts[axisId]) _charts[axisId].destroy();
+  _charts[axisId] = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: data.t.map(t => t.toFixed(1)),
+      datasets: [
+        { label: "pozycja (deg)", data: data.position, borderColor: "#4fc3f7", borderWidth: 1, pointRadius: 0 },
+        { label: "torsja (skala x10)", data: data.torsion_series.map(v => v * 10), borderColor: "#ef6c00", borderWidth: 1, pointRadius: 0 },
+      ],
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      scales: {
+        x: { display: false },
+        y: { ticks: { color: "#9aa0a6", font: { size: 10 } } },
+      },
+      plugins: { legend: { labels: { color: "#9aa0a6", font: { size: 10 } } } },
+    },
+  });
+}
+
+function renderReactionLog(data) {
+  const el = document.getElementById("reaction-log");
+  if (!data.reaction_log.length) {
+    el.innerHTML = "<div>Brak reakcji (wszystkie osie OK).</div>";
+    return;
+  }
+  el.innerHTML = data.reaction_log
+    .map(e => `<div><b>${e.axis_id}</b>: ${e.action} — ${e.detail}</div>`)
+    .join("");
+}
+
+function renderNegativeControl(data) {
+  const nc = data.negative_control;
+  document.getElementById("negative-control").innerHTML = `
+    <div>Prob: ${nc.n_trials}, falszywe alarmy: ${nc.n_false_positive}, wskaznik: ${(nc.false_positive_rate * 100).toFixed(0)}%</div>
+    <div class="disclaimer">${nc.disclaimer}</div>
+  `;
+}
+
+async function loadAll() {
+  let data;
+  try {
+    data = await getJSON("/api/scenario");
+    delete _sectionErrors["Scenariusz"];
+  } catch (e) {
+    console.error("[TIMDR-Robot] Blad pobierania /api/scenario:", e);
+    _sectionErrors["Scenariusz"] = e.message || String(e);
+    _showGlobalError();
+    return;
+  }
+  await Promise.all([
+    loadSection(() => renderSummary(data), "Podsumowanie"),
+    loadSection(() => renderAxesGrid(data), "Osie"),
+    loadSection(() => renderReactionLog(data), "Log reakcji"),
+    loadSection(() => renderNegativeControl(data), "Negative control"),
+  ]);
+}
+
+loadAll();
+</script>
+</body>
+</html>
