@@ -110,6 +110,12 @@
 
   <div class="grid" id="axes-grid"></div>
 
+  <div class="section-title">Podsystemy (chwytak, podstawa mobilna, kamera, zasilanie)</div>
+  <div class="grid" id="subsystems-grid">Ladowanie...</div>
+
+  <div class="section-title">Flota (4 roboty demonstracyjne)</div>
+  <div class="grid" id="fleet-grid">Ladowanie...</div>
+
   <div class="section-title">Log reakcji ControlBridge (symulowane, bez prawdziwego I/O do sprzetu)</div>
   <div id="reaction-log">Ladowanie...</div>
 
@@ -197,6 +203,81 @@ async function renderAxisChart(axisId) {
   });
 }
 
+const SUBSYSTEM_SERIES_KEY = {
+  gripper_0: "grip_force",
+  mobile_base_0: "heading_rate_gyro",
+  camera_0: "tracking_error_px",
+  power_0: "temperature",
+};
+
+async function renderSubsystemsGrid() {
+  const data = await getJSON("/api/subsystems");
+  const grid = document.getElementById("subsystems-grid");
+  grid.innerHTML = "";
+  for (const [componentId, comp] of Object.entries(data.subsystems)) {
+    const card = document.createElement("div");
+    card.className = `card ${comp.level}`;
+    card.innerHTML = `
+      <h3>${componentId} <span class="badge ${comp.level}">${comp.level}</span></h3>
+      <div class="desc">${comp.description}</div>
+      <canvas id="chart-${componentId}"></canvas>
+    `;
+    grid.appendChild(card);
+  }
+  for (const componentId of Object.keys(data.subsystems)) {
+    loadSection(() => renderComponentChart(componentId), `Wykres ${componentId}`);
+  }
+}
+
+async function renderComponentChart(componentId) {
+  const data = await getJSON(`/api/component/${componentId}`);
+  const ctx = document.getElementById(`chart-${componentId}`);
+  if (!ctx) return;
+  if (typeof Chart === "undefined") {
+    throw new Error("Biblioteka Chart.js sie nie zaladowala (sprawdz /static/vendor/chart.umd.js)");
+  }
+  const key = SUBSYSTEM_SERIES_KEY[componentId];
+  const seriesEntries = key && data.series[key] ? [[key, data.series[key]]] : Object.entries(data.series);
+  if (_charts[componentId]) _charts[componentId].destroy();
+  const colors = ["#4fc3f7", "#ef6c00", "#a5d6a7"];
+  _charts[componentId] = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: data.t.map(t => t.toFixed(1)),
+      datasets: seriesEntries.map(([name, values], i) => ({
+        label: name, data: values, borderColor: colors[i % colors.length], borderWidth: 1, pointRadius: 0,
+      })),
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      scales: {
+        x: { display: false },
+        y: { ticks: { color: "#9aa0a6", font: { size: 10 } } },
+      },
+      plugins: { legend: { labels: { color: "#9aa0a6", font: { size: 10 } } } },
+    },
+  });
+}
+
+async function renderFleetGrid() {
+  const data = await getJSON("/api/fleet");
+  const grid = document.getElementById("fleet-grid");
+  grid.innerHTML = "";
+  for (const [unitId, unit] of Object.entries(data.units)) {
+    const compList = Object.entries(unit.components)
+      .map(([cid, level]) => `<div>${cid}: <span class="badge ${level}">${level}</span></div>`)
+      .join("");
+    const card = document.createElement("div");
+    card.className = `card ${unit.level}`;
+    card.innerHTML = `
+      <h3>${unitId} <span class="badge ${unit.level}">${unit.level}</span></h3>
+      <div class="desc">${compList}</div>
+    `;
+    grid.appendChild(card);
+  }
+}
+
 function renderReactionLog(data) {
   const el = document.getElementById("reaction-log");
   if (!data.reaction_log.length) {
@@ -230,6 +311,8 @@ async function loadAll() {
   await Promise.all([
     loadSection(() => renderSummary(data), "Podsumowanie"),
     loadSection(() => renderAxesGrid(data), "Osie"),
+    loadSection(() => renderSubsystemsGrid(), "Podsystemy"),
+    loadSection(() => renderFleetGrid(), "Flota"),
     loadSection(() => renderReactionLog(data), "Log reakcji"),
     loadSection(() => renderNegativeControl(data), "Negative control"),
   ]);
