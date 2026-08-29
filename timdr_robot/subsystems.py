@@ -119,7 +119,17 @@ def generate_gripper_trajectory(
         candidate_idx = candidate_idx[candidate_idx >= start_idx]
         n_events = max(1, int(len(candidate_idx) / (spec.cycle_s / dt) * 3))
         if len(candidate_idx) > 0:
-            centers = rng.choice(candidate_idx, size=min(n_events, len(candidate_idx)), replace=False)
+            # RNG NIEZALEZNY od `rng` uzywanego ponizej dla szumu
+            # pomiarowego - w przeciwnym razie wybor losowych centrow
+            # impulsow (`.choice()`) przesuwa stan `rng`, przez co czysta
+            # i uszkodzona trajektoria dostawalyby ROZNE realizacje szumu
+            # PRZED momentem wystapienia wady (empirycznie znaleziony
+            # blad: test porownujacy "przed onsetem powinno byc identyczne"
+            # wykrywal ~0.75 roznicy w probce prawie 1000 krokow PRZED
+            # wstrzykniętym zdarzeniem - to byl artefakt przesunietego RNG,
+            # nie prawdziwa wada).
+            defect_rng = np.random.default_rng(seed + 1_000_000)
+            centers = defect_rng.choice(candidate_idx, size=min(n_events, len(candidate_idx)), replace=False)
             severities = np.linspace(0.3, 1.0, len(centers)) * defect_severity
             widths = np.full(len(centers), max(1, int(0.02 * spec.cycle_s / dt)))
             dips = _gaussian_pulses_at(n_samples, centers, widths, -spec.hold_force_n * 0.6 * severities)

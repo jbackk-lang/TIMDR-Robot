@@ -108,12 +108,30 @@ def thermal_drift_score(
     return {"slope": float(slope), "intercept": float(intercept), "calib_n": calib_n, "residual": residual}
 
 
-def spectral_energy_drift(x: np.ndarray, dt: float, window: int = 128, step: Optional[int] = None) -> Dict:
+def spectral_energy_drift(
+    x: np.ndarray,
+    dt: float,
+    window: int = 128,
+    step: Optional[int] = None,
+    ratio_factor: float = 8.0,
+    floor: float = 0.02,
+) -> Dict:
     """Windowed FFT: dla kazdego okna liczy udzial energii
     wysokoczestotliwosciowej (> polowa Nyquista) w calkowitej energii
     widma. Zwraca serie tego udzialu w czasie (jedna wartosc na okno) +
-    indeksy okien, w ktorych udzial jest anomalny (MAD-z) wzgledem reszty
-    serii.
+    indeksy okien, w ktorych udzial jest anomalny.
+
+    **DLACZEGO PROG WZGLEDNY (`ratio_factor * mediana`, z podloga
+    `floor`), NIE `anomalies()`/MAD-z:** przy typowej liczbie okien w
+    serii demo (rzedu dziesiatek, nie tysiecy probek) `anomalies()`
+    zawodzil empirycznie - mediana udzialu wysokich czestotliwosci na
+    czystym sygnale jest bardzo mala (rzedu 0.001-0.01), wiec MAD tez
+    jest mikroskopijny, i zwykle statystyczne wahania miedzy oknami
+    (n=30 to malo probek do stabilnego oszacowania MAD) dawaly z-score
+    > 4 na WIELU czystych oknach (falszywe alarmy). Prog wzgledem
+    mediany z jawna podloga jest prostszy i empirycznie stabilniejszy
+    dla tej konkretnej, silnie skosnej (bounded w [0,1], bliskiej zeru)
+    statystyki.
 
     Zwraca dict: window_centers_idx, high_freq_fraction (ndarray),
     anomaly_window_idx.
@@ -142,7 +160,12 @@ def spectral_energy_drift(x: np.ndarray, dt: float, window: int = 128, step: Opt
 
     fractions = np.array(fractions)
     centers = np.array(centers, dtype=int)
-    anomaly_idx = anomalies(fractions, factor=4.0) if len(fractions) >= 3 else np.array([], dtype=int)
+    if len(fractions) >= 3:
+        med = np.median(fractions)
+        threshold = max(ratio_factor * med, floor)
+        anomaly_idx = np.where(fractions > threshold)[0]
+    else:
+        anomaly_idx = np.array([], dtype=int)
     return {"window_centers_idx": centers, "high_freq_fraction": fractions, "anomaly_window_idx": anomaly_idx}
 
 
