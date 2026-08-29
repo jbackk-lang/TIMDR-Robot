@@ -1,0 +1,6 @@
+numpy
+scipy
+fastapi
+uvicorn
+python-multipart
+pytest
