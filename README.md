@@ -1,17 +1,21 @@
 # TIMDR-Robot
 
-Szkielet warstwy TIMDR dla robota wieloosiowego (np. ramienia) - wykrywanie
-anomalii na poszczegolnych osiach na podstawie syntetycznych danych z
-enkoderow/IMU/czujnikow sily, z (symulowanym) mostkiem do sterownika
-robota.
+Szkielet warstwy TIMDR dla robota wieloosiowego (np. ramienia) i jego
+podsystemow (chwytak, podstawa mobilna, kamera, zasilanie) - wykrywanie
+anomalii na podstawie syntetycznych danych z enkoderow/IMU/czujnikow, z
+(symulowanym) mostkiem do sterownika robota, agregacja ponad wieloma
+robotami (flota), i szkielet mostow integracyjnych (ROS2/MQTT/OPC-UA) +
+strumieniowa analiza w oknie kroczacym.
 
 **STATUS: SZKIELET + DANE SYNTETYCZNE.** Zero testow na prawdziwym
 robocie/sprzecie w chwili napisania tego kodu. Zgodnie z ustalonym
 podejsciem ("najpierw szkielet + dane syntetyczne, potem realne testy")
 ten etap celowo NIE laczy sie z zadnym prawdziwym sterownikiem, magistrala
 (CAN/EtherCAT/ROS) ani czujnikiem. Wszystkie liczby w dashboardzie i
-demo pochodza z `timdr_robot/sensor_bus.py` (generator syntetyczny), nie
-z pomiarow.
+demo pochodza z generatorow syntetycznych (`timdr_robot/sensor_bus.py`,
+`timdr_robot/subsystems.py`), nie z pomiarow. Mosty integracyjne
+(`timdr_robot/bridges/`) sa stubami kontraktu w trybie dry-run - nic nie
+laczy sie z prawdziwym brokerem/serwerem.
 
 ## Architektura (5 warstw)
 
@@ -31,7 +35,79 @@ Zgodnie z dokumentem architektury, ktory zainicjowal ten projekt:
    `subscribe_events()`, symulowane reakcje).
 5. **System Logic / HMI** — `timdr_robot/hmi.py` (opisy w jezyku
    naturalnym, bez LLM, budowane wylacznie z policzonych statystyk) +
-   `api.py`/`static/index.html` (dashboard).
+   `api.py`/`static/index.html` (dashboard) + `timdr_robot/fleet.py`
+   (agregacja ponad wieloma robotami).
+
+## Podsystemy (poza osiami ramienia)
+
+`timdr_robot/subsystems.py` + `timdr_robot/subsystem_core.py` dodaja
+cztery kolejne typy komponentow, kazdy z detektorem DOPASOWANYM do
+ksztaltu wlasnego sygnalu (nie mechanicznie tym samym, co dla oscylujacej
+pozycji osi - patrz uzasadnienie w docstringach obu plikow):
+
+- **Chwytak**: sila chwytu w cyklu chwyc-trzymaj-pusc. Detektor:
+  `baseline_residual()` (reszta wzgledem ruchomej mediany w SZEROKIM
+  oknie) + `anomalies()`. `defect_type="slip_event"` (poslizg trzymanego
+  przedmiotu).
+- **Podstawa mobilna**: dwa kola, prawo kinematyczne napedu
+  rozniczkowego (predkosc obrotu z enkoderow) vs niezalezny pomiar
+  zyroskopu. `defect_type="wheel_slip"` (utrata przyczepnosci kola -
+  enkoder "klamie", zyroskop nie).
+- **Kamera/wizja**: blad sledzenia celu (bliski zeru, stacjonarny) -
+  `anomalies()` WPROST, bez posredniego modelu. `defect_type=
+  "tracking_loss"`.
+- **Zasilanie/bateria**: napiecie + prad + temperatura. Laczy limit
+  BEZWZGLEDNY napiecia (jak EN 50160 w TIMDR-Grid-Monitor) z adaptacyjna
+  reszta (`baseline_residual`) dla zapadow napiecia i z
+  `thermal_drift_score()` (dopasowanie liniowego trendu na oknie
+  kalibracyjnym, wykrywanie PRZYSPIESZAJACEGO wzrostu) dla
+  `defect_type="thermal_runaway"`.
+
+Generyczne detektory w `subsystem_core.py`, reuzywalne poza tymi czterema
+podsystemami:
+
+- **`baseline_residual(x, window)`**: reszta wzgledem ruchomej mediany w
+  SZEROKIM oknie (>> szerokosc oczekiwanej anomalii) - dla anomalii
+  LOKALNYCH (impuls/dip), nie dla dryftu trendu.
+- **`thermal_drift_score(x, dt, calib_frac)`**: dopasowanie liniowego
+  trendu na oknie kalibracyjnym, reszta rosnaca dla PRZYSPIESZAJACEGO
+  odchylenia od tego trendu - dla anomalii TRENDU, nie impulsu.
+- **`spectral_energy_drift(x, dt, window)`**: windowed FFT, udzial
+  energii wysokoczestotliwosciowej w czasie - GENERYCZNY proxy dla
+  "analizy widma wibracji lozyska"/"sygnatury pradowej silnika".
+  **JAWNE OGRANICZENIE:** to NIE jest certyfikowana metoda diagnostyki
+  lozysk (brak formul BPFO/BPFI wymagajacych geometrii lozyska) ani
+  prawdziwa MCSA (brak analizy konkretnych wstazek bocznych wokol
+  czestotliwosci sieciowej) - to przesiewowy wskaznik "czy udzial
+  wysokich czestotliwosci rosnie", nie diagnoza konkretnej usterki.
+
+## Flota robotow
+
+`timdr_robot/fleet.py`: `RobotUnit` (jeden robot = slownik `StatusEvent`
+per komponent) + `Fleet` (wiele `RobotUnit`, agregacja najgorszego
+statusu per robot i dla calej floty). Czysto agregujaca warstwa - nie
+liczy niczego nowego z sygnalow. Demo: `demo/fleet_demo.py` (4 roboty: 1
+zdrowy, 3 z roznymi wstrzykniętymi wadami), `/api/fleet` w dashboardzie.
+
+## Mosty integracyjne (stuby) i streaming
+
+`timdr_robot/bridges/` (`ros2_stub.py`, `mqtt_stub.py`, `opcua_stub.py`):
+kontrakt integracji z ROS2/MQTT/OPC-UA. Kazdy uzywa DEFENSYWNEGO importu
+opcjonalnej biblioteki (`rclpy`/`paho-mqtt`/`asyncua`, wzorzec identyczny
+z obsluga h5py w fusion-tools) - bez zainstalowanej biblioteki dziala w
+trybie **dry-run**: `published_log`/`node_values` pokazuja dokladnie, CO
+zostaloby wyslane, ale nic nie laczy sie z prawdziwym brokerem/serwerem.
+
+`timdr_robot/streaming.py`: `SlidingWindowAnalyzer` przyjmuje probki
+JEDNA PO DRUGIEJ (`push()`), trzyma bufor o stalej dlugosci
+(`collections.deque`), re-analizuje go pelnym `core.analyze_axis()` co
+`recompute_every` probek. **Jawne ograniczenie:** kalibracja `omega^2` w
+oknie kroczacym korzysta z NAJSTARSZYCH zachowanych probek (ktore ciagle
+sie przesuwaja), nie z jednego stalego "zdrowego poczatku" jak w analizie
+wsadowej calej serii - jesli wada byla obecna wystarczajaco dlugo, moze
+czesciowo zaniżyc czulosc detekcji. Zweryfikowane empirycznie: replay
+probka-po-probce scenariusza z `backlash` poprawnie przechodzi OK->DEFECT
+niedlugo po wstrzykniętym zdarzeniu (patrz `tests/test_streaming.py`).
 
 ## Jak to dziala (pipeline `analyze_axis()`)
 
@@ -107,10 +183,21 @@ wynosil `1.0` (kazda "czysta" os byla falszywie flagowana).
 - **ControlBridge**: wszystkie reakcje (`reduce_speed`,
   `increase_damping`, `stop_axis`, `alarm`) sa SYMULOWANE (tylko log) -
   brak jakiegokolwiek prawdziwego I/O do sterownika/magistrali.
-- **Brak strumieniowania w czasie rzeczywistym**: `SensorBus` trzyma
-  cala wygenerowana z gory serie, nie strumieniuje probek na biezaco z
-  prawdziwego sprzetu - to kolejny krok, jesli/gdy projekt przejdzie do
-  fazy realnych testow.
+- **Mosty integracyjne** (`bridges/`) sa stubami dry-run - zaden nie
+  laczy sie z prawdziwym ROS2/MQTT/OPC-UA. Wypelnienie `_publish_real()`/
+  `_update_real()`/`_init_real_*()` w kazdym pliku to jawnie oznaczone
+  TODO na przyszlosc.
+- **`SlidingWindowAnalyzer`** (streaming) re-kalibruje `omega^2` na
+  NAJSTARSZYCH probkach w oknie kroczacym, nie na jednym stalym "zdrowym
+  poczatku" - patrz ograniczenie opisane w `streaming.py`.
+- **`baseline_residual()`** uzywa okna SYMETRYCZNEGO (patrzy w obie
+  strony w czasie) - dobre do analizy juz zakonczonej serii, ZLE do
+  prawdziwego strumieniowania w czasie rzeczywistym bez modyfikacji
+  (potrzebowalby wersji wylacznie-wstecznej, jak `_rolling_percentile_
+  spread()` w `core.py`).
+- **`spectral_energy_drift()`** to generyczny przesiewowy wskaznik, NIE
+  certyfikowana diagnostyka lozysk (BPFO/BPFI) ani prawdziwa MCSA - patrz
+  ograniczenie w docstringu `subsystem_core.py`.
 
 ## Historia poprawek
 
@@ -145,6 +232,32 @@ wynosil `1.0` (kazda "czysta" os byla falszywie flagowana).
    harmonicznego (ktora jest ~0 poza zdarzeniami) zamiast na surowym
    przyspieszeniu. Po poprawce: czestotliwosc odzyskiwana konsekwentnie
    w zakresie 14.3-15.1 Hz (prawdziwa: 15 Hz) na 4 niezaleznych ziarnach.
+3. **`core.defect()` (domyslne okno) nie wykrywal `slip_event` (chwytak)
+   ani `voltage_sag` (zasilanie)** - znaleziono empirycznie od razu przy
+   pierwszym teście tych detektorow. Przyczyna: wstrzykniety impuls byl
+   SZEROKI wzgledem domyslnego okna `defect()` (window=20) - lokalny
+   rozstep roznic w tym oknie byl juz "wewnatrz" samego impulsu, wiec sam
+   siebie maskowal (rozne zrodlo tego samego rodzaju problemu co punkt 1,
+   ale tym razem szerokosc okna, nie ksztalt sygnalu). Naprawiono
+   `baseline_residual()` z DLUZSZYM oknem (>> szerokosc impulsu) - reszta
+   wzgledem szerokiej ruchomej mediany nie ma tego problemu.
+4. **`anomalies()`/MAD-z falszywie alarmowal na `spectral_energy_drift()`
+   na czystych danych** (6 z 30 okien flagowanych na czystym sygnale).
+   Przyczyna: przy malej liczbie okien (~30) i silnie skosnej, bliskiej
+   zeru statystyce (udzial energii wysokoczestotliwosciowej) MAD jest
+   mikroskopijny, wiec zwykle wahania miedzy oknami daja z-score > 4.
+   Naprawiono progiem WZGLEDNYM (`ratio_factor * mediana`, z jawna
+   podloga) zamiast MAD-z dla tej konkretnej statystyki.
+5. **Wstrzykniety `slip_event` w generatorze chwytaka psul realizacje
+   szumu PRZED wystapieniem wady** - test porownujacy "przed onsetem
+   trajektorie musza byc identyczne" wykryl ~0.75 roznicy prawie 1000
+   krokow przed wstrzykniętym zdarzeniem. Przyczyna: `rng.choice()` uzyty
+   do losowania centrow impulsow zuzywal/przesuwal stan GLOWNEGO `rng`,
+   przez ktory pozniej losowany byl szum pomiarowy - "czysta" i
+   "uszkodzona" wersja tej samej trajektorii dostawaly WIEC rozne
+   realizacje szumu nawet w okresie, gdzie mialy byc identyczne.
+   Naprawiono uzywajac NIEZALEZNEGO RNG (`seed + 1_000_000`) dla wyboru
+   centrow zdarzen, nie ruszajacego stanu glownego `rng`.
 
 ## Testy
 
@@ -153,23 +266,36 @@ pip install -r requirements.txt
 pytest tests/ -q
 ```
 
-44 testy, wszystkie zielone w chwili napisania tego README - patrz
-`tests/` po pelna liste (geometria/Freneta-Serreta na helisie znanej
-analitycznie, ringdown na syntetycznym oscylatorze tlumionym, sensor_bus,
-core.py wliczajac oba regresyjne testy z Historii poprawek powyzej,
-status.py, control_bridge.py, api.py wliczajac test braku CDN).
+106 testow, wszystkie zielone w chwili napisania tej sekcji README -
+patrz `tests/` po pelna liste: geometria/Freneta-Serreta na helisie
+znanej analitycznie, ringdown na syntetycznym oscylatorze tlumionym,
+sensor_bus/subsystems (4 nowe podsystemy), core.py i subsystem_core.py
+wliczajac wszystkie regresyjne testy z Historii poprawek powyzej,
+status.py (w tym generyczny `compute_component_status`/
+`compute_power_status`), control_bridge.py, fleet.py + fleet_demo.py,
+bridges/ (3 stuby, wszystkie w trybie dry-run w tym srodowisku),
+streaming.py (replay probka-po-probce), api.py (w tym test braku CDN,
+`/api/subsystems`, `/api/component/{id}`, `/api/fleet`).
 
 ## Co dalej (POZA zakresem tego szkieletu)
 
 - Podlaczenie prawdziwego sterownika/magistrali (ROS, CAN, EtherCAT) w
-  miejsce `sensor_bus.py`.
-- Strumieniowe (nie z gory wygenerowane) przetwarzanie probek w czasie
-  rzeczywistym.
+  miejsce `sensor_bus.py`/`subsystems.py` - `bridges/` daje kontrakt, nie
+  dzialajaca integracje (patrz TODO w kazdym pliku `bridges/*_stub.py`).
+- Prawdziwe strumieniowanie z sprzetu (obecnie: replay syntetycznej,
+  wczesniej wygenerowanej serii probka-po-probce przez
+  `SlidingWindowAnalyzer` - krok w strone streamingu, nie polaczenie z
+  zywym sprzetem).
 - Model referencyjny ruchu wykraczajacy poza pojedyncza sinusoide
-  (prawdziwy trapez predkosci, wielosegmentowe trajektorie).
+  (prawdziwy trapez predkosci, wielosegmentowe trajektorie) - dotyczy
+  zarowno `analyze_axis()` jak i kalibracji w oknie kroczacym.
 - Formalny test negative control (permutacyjny/null-model) zamiast
   obecnego podstawowego testu poczytalnosci.
 - Kalibracja progow (`torsion_factor`, `harmonic_anomaly_factor`,
-  `harmonic_anomaly_threshold`) na realnych danych z prawdziwego robota -
-  obecne wartosci sa dobrane tak, by dzialac na TYM konkretnym
-  syntetycznym scenariuszu, nie zwalidowane szerzej.
+  `harmonic_anomaly_threshold`, progi podsystemow) na realnych danych z
+  prawdziwego robota - obecne wartosci sa dobrane tak, by dzialac na TYM
+  konkretnym syntetycznym scenariuszu, nie zwalidowane szerzej.
+- Certyfikowana diagnostyka lozysk (BPFO/BPFI z geometrii lozyska) i
+  prawdziwa MCSA zamiast obecnego generycznego `spectral_energy_drift()`.
+- Dashboard: wykresy dla floty (obecnie tylko kafelki statusu, bez
+  wykresow czasowych per robot).

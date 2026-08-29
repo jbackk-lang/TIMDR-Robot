@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 data/demo_run.csv
 data/demo_events.json
+data/full_robot_events.json
