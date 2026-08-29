@@ -84,3 +84,86 @@ def compute_axis_status(
         message = f"Os {axis_id}: brak wykrytych anomalii."
 
     return StatusEvent(axis_id=axis_id, level=level, message=message, metrics_snapshot=metrics)
+
+
+def compute_component_status(
+    component_id: str,
+    anomaly_count: int,
+    metrics: Optional[Dict] = None,
+    anomaly_threshold: int = 3,
+    component_label: str = "komponent",
+    ok_message: Optional[str] = None,
+    defect_message: Optional[str] = None,
+) -> StatusEvent:
+    """Wersja compute_axis_status() UOGOLNIONA dla podsystemow innych niz
+    obrotowa os ramienia (chwytak, podstawa mobilna, kamera, zasilanie -
+    patrz `subsystem_core.py`). Te podsystemy nie maja pojecia "torsji
+    portretu fazowego" ani "rezonansu po zdarzeniu" (te koncepcje sa
+    specyficzne dla ruchu obrotowego osi) - maja WYLACZNIE licznik
+    anomalii z jednego, wlasciwego dla siebie detektora
+    (`baseline_residual`+`anomalies`, reszta kinematyczna,
+    `thermal_drift_score`, itd. - patrz subsystem_core.py). Dlatego tylko
+    dwa poziomy sa tu uzywane: OK i DEFECT (bez SUSPECT/RESONANCE, ktore
+    wymagalyby dodatkowego, niezaleznego sygnalu, jakiego te podsystemy
+    obecnie nie maja - `AxisHealth.SUSPECT`/`RESONANCE` sa nadal dostepne
+    w enumie na przyszlosc, gdy podsystem dostanie drugi, niezalezny
+    detektor).
+
+    `StatusEvent.axis_id` jest tu uzywany jako generyczny identyfikator
+    komponentu (nie zmieniono nazwy pola, zeby nie zlamac istniejacego
+    kodu/testow dla osi ramienia - semantycznie dziala identycznie).
+    """
+    if anomaly_count >= anomaly_threshold:
+        level = AxisHealth.DEFECT
+        message = defect_message or (
+            f"{component_label} {component_id}: {anomaly_count} anomalii "
+            f"wykrytych w oknie analizy (prog: {anomaly_threshold})."
+        )
+    else:
+        level = AxisHealth.OK
+        message = ok_message or f"{component_label} {component_id}: brak wykrytych anomalii."
+
+    return StatusEvent(axis_id=component_id, level=level, message=message, metrics_snapshot=metrics or {})
+
+
+def compute_power_status(
+    power_metrics: Dict,
+    voltage_anomaly_threshold: int = 3,
+    thermal_anomaly_threshold: int = 3,
+) -> StatusEvent:
+    """Dedykowana wersja dla `subsystem_core.analyze_power()`, bo laczy
+    TRZY niezalezne sygnaly (limit bezwzgledny napiecia, wzgledna anomalia
+    napiecia, dryft termiczny) - zbyt rozne, zeby upychac w jeden
+    generyczny `anomaly_count` bez utraty informacji, KTORY z trzech
+    problemow faktycznie wystapil. Priorytet: naruszenie limitu
+    bezwzglednego (najpowazniejsze, bezposrednie zagrozenie) > dryft
+    termiczny > wzgledna anomalia napiecia > OK."""
+    component_id = power_metrics["component_id"]
+    n_abs = power_metrics.get("voltage_absolute_violation_count", 0)
+    n_volt = power_metrics.get("voltage_anomaly_count", 0)
+    n_therm = power_metrics.get("thermal_anomaly_count", 0)
+
+    if n_abs > 0:
+        level = AxisHealth.DEFECT
+        message = (
+            f"Zasilanie {component_id}: {n_abs} probek ponizej "
+            f"bezwzglednego limitu napiecia - bezposrednie zagrozenie."
+        )
+    elif n_therm >= thermal_anomaly_threshold:
+        level = AxisHealth.DEFECT
+        message = (
+            f"Zasilanie {component_id}: {n_therm} anomalii dryftu "
+            f"termicznego (nachylenie: {power_metrics.get('thermal_slope'):.3f}) - "
+            f"mozliwy rozbiegajacy sie wzrost temperatury."
+        )
+    elif n_volt >= voltage_anomaly_threshold:
+        level = AxisHealth.SUSPECT
+        message = (
+            f"Zasilanie {component_id}: {n_volt} przejsciowych anomalii "
+            f"napiecia (wzgledem lokalnej mediany) - wymaga uwagi."
+        )
+    else:
+        level = AxisHealth.OK
+        message = f"Zasilanie {component_id}: brak wykrytych anomalii."
+
+    return StatusEvent(axis_id=component_id, level=level, message=message, metrics_snapshot=power_metrics)
