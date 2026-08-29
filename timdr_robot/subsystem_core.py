@@ -54,6 +54,13 @@ from typing import Dict, Optional
 import numpy as np
 
 from .core import _mad_z, anomalies, defect  # noqa: F401 (defect re-eksportowany dla spojnosci API)
+from .sanity import sanity_check_metrics, sanity_check_signal
+
+
+def _rejected(component_id: str, n_samples: int, reason: str) -> Dict:
+    """Wspolny ksztalt wyniku NC1/NC2 dla wszystkich analyze_*() ponizej -
+    patrz sanity.py po pelne uzasadnienie tych dwoch bramek."""
+    return {"component_id": component_id, "n_samples": n_samples, "rejected": True, "rejection_reason": reason}
 
 
 # ---------------------------------------------------------------------
@@ -180,15 +187,24 @@ def analyze_gripper(
     residual_window: int = 61,
     anomaly_factor: float = 5.0,
 ) -> Dict:
+    n = len(grip_force)
+    nc1 = sanity_check_signal(grip_force, name="grip_force")
+    if not nc1.ok:
+        return _rejected(component_id, n, nc1.reason)
+
     residual = baseline_residual(grip_force, window=residual_window)
     idx = anomalies(residual, factor=anomaly_factor)
-    return {
+    result = {
         "component_id": component_id,
-        "n_samples": len(grip_force),
+        "n_samples": n,
         "anomaly_count": int(len(idx)),
         "anomaly_idx": idx.tolist(),
         "residual_max_abs": float(np.max(np.abs(residual))) if len(residual) else 0.0,
     }
+    nc2 = sanity_check_metrics(result, numeric_keys=["anomaly_count", "residual_max_abs"])
+    if not nc2.ok:
+        return _rejected(component_id, n, f"NC2: {nc2.reason}")
+    return result
 
 
 # ---------------------------------------------------------------------
@@ -210,16 +226,27 @@ def analyze_mobile_base(
     v_left = np.asarray(v_left, dtype=float)
     v_right = np.asarray(v_right, dtype=float)
     heading_rate_gyro = np.asarray(heading_rate_gyro, dtype=float)
+    n = len(v_left)
+
+    for arr, arr_name in ((v_left, "v_left"), (v_right, "v_right"), (heading_rate_gyro, "heading_rate_gyro")):
+        nc1 = sanity_check_signal(arr, name=arr_name)
+        if not nc1.ok:
+            return _rejected(component_id, n, nc1.reason)
+
     heading_rate_expected = (v_right - v_left) / wheel_base_m
     residual = heading_rate_gyro - heading_rate_expected
     idx = anomalies(residual, factor=anomaly_factor)
-    return {
+    result = {
         "component_id": component_id,
-        "n_samples": len(v_left),
+        "n_samples": n,
         "anomaly_count": int(len(idx)),
         "anomaly_idx": idx.tolist(),
         "residual_max_abs": float(np.max(np.abs(residual))) if len(residual) else 0.0,
     }
+    nc2 = sanity_check_metrics(result, numeric_keys=["anomaly_count", "residual_max_abs"])
+    if not nc2.ok:
+        return _rejected(component_id, n, f"NC2: {nc2.reason}")
+    return result
 
 
 # ---------------------------------------------------------------------
@@ -236,14 +263,23 @@ def analyze_vision(
     `anomalies()` (MAD-z) mozna zastosowac WPROST, bez posredniego modelu
     fizycznego (w odroznieniu od pozycji osi w ruchu)."""
     tracking_error_px = np.asarray(tracking_error_px, dtype=float)
+    n = len(tracking_error_px)
+    nc1 = sanity_check_signal(tracking_error_px, name="tracking_error_px")
+    if not nc1.ok:
+        return _rejected(component_id, n, nc1.reason)
+
     idx = anomalies(tracking_error_px, factor=anomaly_factor)
-    return {
+    result = {
         "component_id": component_id,
-        "n_samples": len(tracking_error_px),
+        "n_samples": n,
         "anomaly_count": int(len(idx)),
         "anomaly_idx": idx.tolist(),
-        "max_abs_error_px": float(np.max(np.abs(tracking_error_px))) if len(tracking_error_px) else 0.0,
+        "max_abs_error_px": float(np.max(np.abs(tracking_error_px))) if n else 0.0,
     }
+    nc2 = sanity_check_metrics(result, numeric_keys=["anomaly_count", "max_abs_error_px"])
+    if not nc2.ok:
+        return _rejected(component_id, n, f"NC2: {nc2.reason}")
+    return result
 
 
 # ---------------------------------------------------------------------
@@ -281,6 +317,12 @@ def analyze_power(
     current = np.asarray(current, dtype=float)
     temperature = np.asarray(temperature, dtype=float)
     n = len(voltage)
+
+    for arr, arr_name in ((voltage, "voltage"), (current, "current"), (temperature, "temperature")):
+        nc1 = sanity_check_signal(arr, name=arr_name)
+        if not nc1.ok:
+            return _rejected(component_id, n, nc1.reason)
+
     if dt is None:
         dt = float(np.median(np.diff(t))) if n >= 2 else 1.0
 
@@ -292,7 +334,7 @@ def analyze_power(
     thermal = thermal_drift_score(temperature, dt, calib_frac=thermal_calib_frac)
     thermal_anomaly_idx = anomalies(thermal["residual"], factor=thermal_anomaly_factor)
 
-    return {
+    result = {
         "component_id": component_id,
         "n_samples": n,
         "voltage_absolute_violation_count": int(len(absolute_violation_idx)),
@@ -304,3 +346,10 @@ def analyze_power(
         "thermal_anomaly_idx": thermal_anomaly_idx.tolist(),
         "thermal_residual_max_abs": float(np.max(np.abs(thermal["residual"]))) if n else 0.0,
     }
+    nc2 = sanity_check_metrics(result, numeric_keys=[
+        "voltage_absolute_violation_count", "voltage_anomaly_count",
+        "thermal_slope", "thermal_anomaly_count", "thermal_residual_max_abs",
+    ])
+    if not nc2.ok:
+        return _rejected(component_id, n, f"NC2: {nc2.reason}")
+    return result

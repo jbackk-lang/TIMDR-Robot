@@ -20,7 +20,7 @@ from typing import Dict, List
 
 from .status import AxisHealth, StatusEvent
 
-_LEVEL_ORDER = [AxisHealth.OK, AxisHealth.SUSPECT, AxisHealth.RESONANCE, AxisHealth.DEFECT]
+_LEVEL_ORDER = [AxisHealth.OK, AxisHealth.SUSPECT, AxisHealth.RESONANCE, AxisHealth.DEFECT, AxisHealth.REJECTED]
 
 
 @dataclass

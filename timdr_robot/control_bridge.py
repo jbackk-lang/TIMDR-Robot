@@ -63,6 +63,18 @@ class ControlBridge:
 
     def _react(self, event: StatusEvent) -> None:
         axis_id = event.axis_id
+        if event.level == AxisHealth.REJECTED:
+            # Sygnal nie przeszedl bramki sanity/NC (patrz sanity.py) -
+            # NIE wiadomo, czy cokolwiek o stanie osi jest wiarygodne, wiec
+            # reakcja jest NAJBARDZIEJ zachowawcza z mozliwych: zatrzymanie
+            # + alarm + kwarantanna, bez proby stopniowania (reduce_speed/
+            # increase_damping zakladalyby, ze wiemy CO robic z danymi,
+            # ktorym wlasnie przestalismy ufac).
+            self.stop_axis(axis_id)
+            self.alarm(axis_id)
+            self.quarantine(axis_id)
+            self._log(axis_id, "log_critical", event.message)
+            return
         if event.level == AxisHealth.OK:
             return
         if event.level == AxisHealth.SUSPECT:
@@ -99,6 +111,16 @@ class ControlBridge:
     def alarm(self, axis_id: str) -> None:
         self.reaction_log.append(ReactionLogEntry(
             axis_id, "alarm", f"symulacja: alarm dla osi {axis_id}"
+        ))
+
+    def quarantine(self, axis_id: str) -> None:
+        """Tylko dla REJECTED: sygnalizuje, ze dane z tej osi/podsystemu
+        sa niewiarygodne (nie: "wada mechaniczna", tylko "nie wiemy") -
+        w realnej integracji odpowiadaloby to np. oznaczeniu kanalu
+        czujnika jako 'do przegladu diagnostycznego' zamiast dalszego
+        pobierania z niego decyzji."""
+        self.reaction_log.append(ReactionLogEntry(
+            axis_id, "quarantine", f"symulacja: kwarantanna kanalu {axis_id} - dane niewiarygodne"
         ))
 
     def _log(self, axis_id: str, level: str, message: str) -> None:

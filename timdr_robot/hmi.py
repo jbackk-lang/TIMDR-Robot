@@ -58,7 +58,7 @@ def describe_scenario(events: Dict[str, StatusEvent], label_plural: str = "osi")
         by_level[event.level].append(component_id)
 
     lines = []
-    for level in (AxisHealth.DEFECT, AxisHealth.RESONANCE, AxisHealth.SUSPECT, AxisHealth.OK):
+    for level in (AxisHealth.REJECTED, AxisHealth.DEFECT, AxisHealth.RESONANCE, AxisHealth.SUSPECT, AxisHealth.OK):
         ids = by_level[level]
         if ids:
             lines.append(f"{level.value}: {', '.join(ids)}")
@@ -97,7 +97,7 @@ def describe_fleet(fleet: Fleet) -> str:
         by_level[level].append(unit_id)
 
     lines = []
-    for level in (AxisHealth.DEFECT, AxisHealth.RESONANCE, AxisHealth.SUSPECT, AxisHealth.OK):
+    for level in (AxisHealth.REJECTED, AxisHealth.DEFECT, AxisHealth.RESONANCE, AxisHealth.SUSPECT, AxisHealth.OK):
         ids = by_level[level]
         if ids:
             lines.append(f"{level.value}: {', '.join(ids)}")

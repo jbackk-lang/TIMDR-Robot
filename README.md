@@ -27,7 +27,8 @@ Zgodnie z dokumentem architektury, ktory zainicjowal ten projekt:
 2. **Robot Control** — profil ruchu osi (tu: uproszczony ruch
    sinusoidalny zamiast pelnego trapezu predkosci - patrz ograniczenia
    nizej).
-3. **TIMDR Core** — `timdr_robot/core.py` (model harmoniczny +
+3. **TIMDR Core** — `timdr_robot/sanity.py` (bramki NC1/NC2, patrz sekcja
+   ponizej) + `timdr_robot/core.py` (model harmoniczny +
    `timdr_robot/geometry.py` (torsja Freneta-Serreta portretu fazowego) +
    `timdr_robot/ringdown.py` (rezonans po zdarzeniu).
 4. **TIMDR Integration** — `timdr_robot/status.py` (mapowanie metryk na
@@ -109,11 +110,45 @@ czesciowo zaniżyc czulosc detekcji. Zweryfikowane empirycznie: replay
 probka-po-probce scenariusza z `backlash` poprawnie przechodzi OK->DEFECT
 niedlugo po wstrzykniętym zdarzeniu (patrz `tests/test_streaming.py`).
 
+## Bramki Sanity/Negative Control (NC1 wejscie, NC2 wyjscie)
+
+Dodane na wprost postawione pytanie uzytkownika o formalny 8-krokowy
+protokol analizy sygnalu (Sanity/NC -> Okna -> Prime Spectrum -> Torsja
+-> Ringdown -> NC2 -> Klasyfikacja -> Decyzja). Kroki 2 (okna), 4
+(torsja), 5 (ringdown), 7 (klasyfikacja) i 8 (decyzja) juz odpowiadaly
+istniejacemu kodowi (patrz nizej) - kroki 1 i 6 (obie bramki sanity) BYLY
+JAWNA LUKA, teraz zamknietej w `timdr_robot/sanity.py`:
+
+- **NC1** (`sanity_check_signal()`): PRZED jakakolwiek analiza, kazdy
+  sygnal wejsciowy (pozycja/predkosc/przyspieszenie osi; grip_force;
+  v_left/v_right/heading_rate_gyro; tracking_error_px; voltage/current/
+  temperature) jest sprawdzany pod katem NaN/Inf/pustosci, oraz -
+  opcjonalnie, jesli wywolujacy poda `max_physical_jump_*` (twardy limit
+  fizyczny SPECYFICZNY dla danego czujnika, nie wyliczany automatycznie z
+  danych) - skoku wiekszego niz fizycznie mozliwy.
+- **NC2** (`sanity_check_metrics()`): PO policzeniu torsji/modelu
+  harmonicznego/rezonansu (lub odpowiednika w podsystemach), PRZED
+  klasyfikacja - sprawdza, ze same WYNIKI sa skonczone i sensowne
+  (liczniki anomalii nieujemne, brak NaN/Inf w metrykach liczbowych).
+
+Sygnal/wynik, ktory NIE przejdzie ktorejkolwiek bramki, dostaje nowy,
+piaty poziom statusu: **`AxisHealth.REJECTED`** - NAJWYZSZY priorytet
+powagi (wyzszy niz `DEFECT`), bo oznacza "nie wiemy, czy dane sa
+wiarygodne", nie "wiemy, ze jest wada mechaniczna". `ControlBridge`
+reaguje na `REJECTED` najbardziej zachowawczo z mozliwych reakcji:
+`stop_axis()` + `alarm()` + nowa `quarantine()` (bez `reduce_speed()`/
+`increase_damping()` - te zakladalyby, ze wiemy, JAK stopniowac reakcje
+na danych, ktorym wlasnie przestalismy ufac). Zweryfikowane testami z
+wstrzykniętym NaN/Inf/niemozliwym skokiem na kazdym typie sygnalu w tym
+repo (`tests/test_sanity.py`, `tests/test_rejected_pipeline.py`).
+
 ## Jak to dziala (pipeline `analyze_axis()`)
 
 Dla kazdej osi mamy trzy zsynchronizowane sygnaly: pozycja (kat
 enkodera), predkosc katowa, przyspieszenie katowe.
 
+0. **NC1** (patrz sekcja powyzej) - sygnaly wejsciowe musza przejsc
+   bramke sanity, inaczej analiza w ogole sie nie wykonuje.
 1. **Model harmoniczny** (`core.harmonic_law_residual()`): dopasowuje
    `omega^2` w prawie `przyspieszenie = -omega^2 * pozycja` (prosty
    oscylator harmoniczny) na POCZATKOWYM oknie kalibracyjnym (domyslnie
@@ -130,13 +165,16 @@ enkodera), predkosc katowa, przyspieszenie katowe.
    wykrytego zdarzenia sprawdza, czy powrot RESZTY modelu harmonicznego do
    poziomu odniesienia jest oscylacyjny (mozliwe "dzwonienie"
    mechaniczne) czy monotoniczny.
-4. **Status** (`status.compute_axis_status()`): mapuje powyzsze na
-   `AxisHealth`: `OK` -> `SUSPECT` -> `RESONANCE` -> `DEFECT` (priorytet
-   rosnaco, `DEFECT` wygrywa gdy zachodzi wiecej niz jeden warunek).
-5. **ControlBridge**: publikuje `StatusEvent`, wywoluje subskrybentow i
+4. **NC2** (patrz sekcja powyzej) - policzone metryki musza przejsc druga
+   bramke sanity PRZED klasyfikacja.
+5. **Status** (`status.compute_axis_status()`): mapuje powyzsze na
+   `AxisHealth`: `OK` -> `SUSPECT` -> `RESONANCE` -> `DEFECT` -> `REJECTED`
+   (priorytet rosnaco, najbardziej dotkliwy wygrywa).
+6. **ControlBridge**: publikuje `StatusEvent`, wywoluje subskrybentow i
    (SYMULOWANE, bez prawdziwego I/O) reakcje: `SUSPECT` -> tylko log,
    `RESONANCE` -> `reduce_speed()`, `DEFECT` -> `reduce_speed()` +
-   `increase_damping()` + `stop_axis()` + `alarm()`.
+   `increase_damping()` + `stop_axis()` + `alarm()`, `REJECTED` ->
+   `stop_axis()` + `alarm()` + `quarantine()`.
 
 ## Scenariusz demonstracyjny
 
@@ -266,16 +304,19 @@ pip install -r requirements.txt
 pytest tests/ -q
 ```
 
-106 testow, wszystkie zielone w chwili napisania tej sekcji README -
+128 testow, wszystkie zielone w chwili napisania tej sekcji README -
 patrz `tests/` po pelna liste: geometria/Freneta-Serreta na helisie
 znanej analitycznie, ringdown na syntetycznym oscylatorze tlumionym,
 sensor_bus/subsystems (4 nowe podsystemy), core.py i subsystem_core.py
 wliczajac wszystkie regresyjne testy z Historii poprawek powyzej,
+sanity.py (NC1/NC2, `tests/test_sanity.py`) + testy end-to-end sciezki
+REJECTED przez cala warstwe (`tests/test_rejected_pipeline.py`),
 status.py (w tym generyczny `compute_component_status`/
-`compute_power_status`), control_bridge.py, fleet.py + fleet_demo.py,
-bridges/ (3 stuby, wszystkie w trybie dry-run w tym srodowisku),
-streaming.py (replay probka-po-probce), api.py (w tym test braku CDN,
-`/api/subsystems`, `/api/component/{id}`, `/api/fleet`).
+`compute_power_status`), control_bridge.py (w tym `quarantine()` dla
+REJECTED), fleet.py + fleet_demo.py, bridges/ (3 stuby, wszystkie w
+trybie dry-run w tym srodowisku), streaming.py (replay probka-po-probce),
+api.py (w tym test braku CDN, `/api/subsystems`, `/api/component/{id}`,
+`/api/fleet`).
 
 ## Co dalej (POZA zakresem tego szkieletu)
 

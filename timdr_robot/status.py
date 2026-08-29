@@ -1,11 +1,19 @@
 """timdr_robot/status.py — warstwa "TIMDR Integration": mapuje surowe
 metryki z core.analyze_axis() na dyskretny status zdrowia osi + zdarzenia.
 ================================================================================
-Cztery poziomy (rosnaco wg powagi): OK -> SUSPECT -> RESONANCE -> DEFECT.
-Reguly mapowania sa CELOWO proste i jawnie opisane (nie ukryty "czarny
-box") - to jest szkielet do dalszej kalibracji na realnych danych, nie
-gotowy, zwalidowany system decyzyjny:
+Piec poziomow (rosnaco wg powagi): OK -> SUSPECT -> RESONANCE -> DEFECT ->
+REJECTED. Reguly mapowania sa CELOWO proste i jawnie opisane (nie ukryty
+"czarny box") - to jest szkielet do dalszej kalibracji na realnych
+danych, nie gotowy, zwalidowany system decyzyjny:
 
+- REJECTED: sygnal (lub policzone z niego metryki) NIE przeszedl bramki
+  sanity/negative-control (`sanity.sanity_check_signal()` na wejsciu -
+  krok 1, albo `sanity.sanity_check_metrics()` na wyjsciu - krok 6, wg
+  8-krokowego schematu zaproponowanego przez uzytkownika). TIMDR
+  swiadomie NIE ANALIZUJE dalej sygnalu niefizycznego (NaN/Inf/skok
+  wiekszy niz fizycznie mozliwy) - to NAJWYZSZY priorytet powagi, wyzszy
+  niz DEFECT, bo oznacza, ze nie wiemy nawet, czy dane sa wiarygodne (np.
+  awaria czujnika/magistrali), a nie "wiemy, ze jest wada mechaniczna".
 - DEFECT: >= `harmonic_anomaly_threshold` anomalii reszty modelu
   harmonicznego (core.harmonic_law_residual(), patrz core.py po pelne
   uzasadnienie) wykrytych w oknie analizy - interpretacja: przyspieszenie
@@ -19,8 +27,11 @@ gotowy, zwalidowany system decyzyjny:
   klasyfikowac jako DEFECT/RESONANCE) - wymaga uwagi, nie alarmu.
 - OK: brak wykrytych anomalii.
 
-Priorytet gdy zachodzi wiecej niz jeden warunek: DEFECT > RESONANCE >
-SUSPECT > OK (najbardziej dotkliwy wygrywa).
+Priorytet gdy zachodzi wiecej niz jeden warunek: REJECTED > DEFECT >
+RESONANCE > SUSPECT > OK (najbardziej dotkliwy wygrywa). REJECTED jest
+sprawdzany JAKO PIERWSZY w kazdej z funkcji ponizej - jesli sygnal zostal
+odrzucony na wejsciu, reszta metryk w ogole nie istnieje (analiza sie nie
+wykonala), wiec dalsze warunki nie mialyby czego sprawdzac.
 """
 from __future__ import annotations
 
@@ -34,6 +45,7 @@ class AxisHealth(str, Enum):
     SUSPECT = "SUSPECT"
     RESONANCE = "RESONANCE"
     DEFECT = "DEFECT"
+    REJECTED = "REJECTED"
 
 
 @dataclass
@@ -50,6 +62,13 @@ def compute_axis_status(
 ) -> StatusEvent:
     """Mapuje wyjscie `core.analyze_axis()` na (AxisHealth, komunikat)."""
     axis_id = metrics["axis_id"]
+    if metrics.get("rejected"):
+        reason = metrics.get("rejection_reason", "nieznany powod")
+        return StatusEvent(
+            axis_id=axis_id, level=AxisHealth.REJECTED,
+            message=f"Os {axis_id}: sygnal ODRZUCONY na bramce sanity/NC ({reason}) - analiza nie wykonana.",
+            metrics_snapshot=metrics,
+        )
     ringdown = metrics.get("ringdown")
     is_resonant = bool(ringdown and ringdown.get("is_oscillatory"))
     n_harmonic_anomalies = metrics.get("harmonic_anomaly_count", 0)
@@ -113,6 +132,13 @@ def compute_component_status(
     komponentu (nie zmieniono nazwy pola, zeby nie zlamac istniejacego
     kodu/testow dla osi ramienia - semantycznie dziala identycznie).
     """
+    if metrics and metrics.get("rejected"):
+        reason = metrics.get("rejection_reason", "nieznany powod")
+        return StatusEvent(
+            axis_id=component_id, level=AxisHealth.REJECTED,
+            message=f"{component_label} {component_id}: sygnal ODRZUCONY na bramce sanity/NC ({reason}) - analiza nie wykonana.",
+            metrics_snapshot=metrics,
+        )
     if anomaly_count >= anomaly_threshold:
         level = AxisHealth.DEFECT
         message = defect_message or (
@@ -139,6 +165,13 @@ def compute_power_status(
     bezwzglednego (najpowazniejsze, bezposrednie zagrozenie) > dryft
     termiczny > wzgledna anomalia napiecia > OK."""
     component_id = power_metrics["component_id"]
+    if power_metrics.get("rejected"):
+        reason = power_metrics.get("rejection_reason", "nieznany powod")
+        return StatusEvent(
+            axis_id=component_id, level=AxisHealth.REJECTED,
+            message=f"Zasilanie {component_id}: sygnal ODRZUCONY na bramce sanity/NC ({reason}) - analiza nie wykonana.",
+            metrics_snapshot=power_metrics,
+        )
     n_abs = power_metrics.get("voltage_absolute_violation_count", 0)
     n_volt = power_metrics.get("voltage_anomaly_count", 0)
     n_therm = power_metrics.get("thermal_anomaly_count", 0)

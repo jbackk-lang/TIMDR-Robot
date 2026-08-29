@@ -71,6 +71,7 @@ import numpy as np
 
 from . import geometry
 from .ringdown import ringdown_resonance
+from .sanity import sanity_check_metrics, sanity_check_signal
 
 
 # ---------------------------------------------------------------------
@@ -181,16 +182,46 @@ def analyze_axis(
     harmonic_calib_frac: float = 0.3,
     ringdown_pre_window: int = 20,
     ringdown_lookahead: int = 300,
+    max_physical_jump_position: Optional[float] = None,
+    max_physical_jump_accel: Optional[float] = None,
 ) -> Dict:
     """Pelna analiza jednej osi. Zwraca dict metryk (nigdy nie rzuca
     wyjatku na poprawnych wejsciach - brakujace wykrycia daja puste listy/
     None, nie None-owy caly wynik, zeby wywolujacy zawsze mial spojna
-    strukture do dalszego przetwarzania)."""
+    strukture do dalszego przetwarzania).
+
+    **NC1 (krok 1 wg protokolu Sanity/Negative Control)**: PRZED
+    jakakolwiek analiza, `position`/`velocity`/`accel` sa sprawdzane
+    `sanity.sanity_check_signal()` - NaN/Inf/pusty sygnal, oraz (jesli
+    podano `max_physical_jump_position`/`_accel`) skok wiekszy niz
+    fizycznie mozliwy dla TEGO konkretnego czujnika. Jesli ktorykolwiek
+    warunek zawiedzie, funkcja NATYCHMIAST zwraca metryki z
+    `rejected=True` i `rejection_reason=...`, bez liczenia torsji/modelu
+    harmonicznego/rezonansu - `status.compute_axis_status()` mapuje to na
+    `AxisHealth.REJECTED` (najwyzszy priorytet powagi). Domyslnie
+    `max_physical_jump_*` sa `None` (brak twardego limitu) - to jest
+    parametr specyficzny dla konkretnego czujnika/robota, ktory
+    wywolujacy powinien podac na podstawie znanej specyfikacji fizycznej,
+    nie czegos wyliczonego automatycznie z danych (to by bylo po prostu
+    kolejnym statystycznym progiem, jak `anomalies()`/`defect()`).
+    """
     t = np.asarray(t, dtype=float)
     position = np.asarray(position, dtype=float)
     velocity = np.asarray(velocity, dtype=float)
     accel = np.asarray(accel, dtype=float)
     n = len(position)
+
+    for arr, arr_name, max_jump in (
+        (position, "pozycja", max_physical_jump_position),
+        (velocity, "predkosc", None),
+        (accel, "przyspieszenie", max_physical_jump_accel),
+    ):
+        nc1 = sanity_check_signal(arr, name=arr_name, max_physical_jump=max_jump)
+        if not nc1.ok:
+            return {
+                "axis_id": axis_id, "n_samples": n, "rejected": True,
+                "rejection_reason": nc1.reason,
+            }
 
     if dt is None:
         dt = float(np.median(np.diff(t))) if n >= 2 else 1.0
@@ -230,7 +261,7 @@ def analyze_axis(
                 max_lookahead=ringdown_lookahead,
             )
 
-    return {
+    result = {
         "axis_id": axis_id,
         "n_samples": n,
         "dt": dt,
@@ -247,6 +278,23 @@ def analyze_axis(
         "ringdown": ringdown_result,
         "force_mean": float(np.mean(force)) if force is not None and len(force) else None,
     }
+
+    # NC2 (krok 6): sprawdzenie, ze same POLICZONE wyniki (nie surowy
+    # sygnal - ten juz przeszedl NC1 powyzej) sa skonczone i sensowne,
+    # PRZED przekazaniem do klasyfikacji statusu. W praktyce bardzo
+    # rzadko sie uruchamia przy poprawnym kodzie - to tania bramka
+    # obronna, nie kosztowna: gdy nie ma czego lapac, nic nie kosztuje.
+    nc2 = sanity_check_metrics(
+        result,
+        numeric_keys=["torsion_max_abs", "omega_sq", "harmonic_anomaly_count", "torsion_spike_count"],
+    )
+    if not nc2.ok:
+        return {
+            "axis_id": axis_id, "n_samples": n, "rejected": True,
+            "rejection_reason": f"NC2 (wyniki analizy): {nc2.reason}",
+        }
+
+    return result
 
 
 def negative_control_check(
@@ -275,6 +323,12 @@ def negative_control_check(
             "negative_control", traj["t"], traj["position"], traj["velocity"],
             traj["accel"], traj.get("force"), dt=dt,
         )
+        if result.get("rejected"):
+            # sygnal syntetyczny "czysty" nie powinien byc odrzucany przez
+            # NC1/NC2 - jesli jest, to samo w sobie jest falszywym alarmem
+            # (najpowazniejszego rodzaju: odrzucenie zamiast analizy)
+            n_fp += 1
+            continue
         flagged = result["harmonic_anomaly_count"] > 0 or result["torsion_spike_count"] > 0
         if flagged and result["ringdown"] is not None and result["ringdown"]["is_oscillatory"]:
             n_fp += 1
