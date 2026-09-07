@@ -1,0 +1,154 @@
+{
+  "axis_0": {
+    "level": "SUSPECT",
+    "message": "Os axis_0: 1 skokow torsji portretu fazowego bez potwierdzonego defektu/rezonansu - wymaga uwagi.",
+    "description": "Os axis_0 (2000 probek): status SUSPECT. Wykryto 1 skoki torsji portretu fazowego (geometria: pozycja-predkosc-przyspieszenie). To jest opis statystyczny wyjscia pipeline'u TIMDR na danych SYNTETYCZNYCH, NIE zwalidowana diagnoza mechaniczna prawdziwego sprzetu.",
+    "harmonic_anomaly_count": 0,
+    "torsion_spike_count": 1,
+    "torsion_max_abs": 0.1659203780031384,
+    "ringdown": {
+      "baseline": -0.005363292664901565,
+      "noise_floor": 0.2437828948809176,
+      "is_oscillatory": false,
+      "n_crossings": 0,
+      "n_peaks_used": 2,
+      "period_s": null,
+      "frequency_hz": null,
+      "log_decrement": null,
+      "damping_ratio": null,
+      "peak_times": [
+        5.04,
+        5.04
+      ],
+      "peak_amplitudes": [
+        -0.254636789781992,
+        -0.254636789781992
+      ]
+    }
+  },
+  "axis_1": {
+    "level": "OK",
+    "message": "Os axis_1: brak wykrytych anomalii.",
+    "description": "Os axis_1 (2000 probek): status OK. Brak anomalii reszty modelu harmonicznego ani skokow torsji portretu fazowego. To jest opis statystyczny wyjscia pipeline'u TIMDR na danych SYNTETYCZNYCH, NIE zwalidowana diagnoza mechaniczna prawdziwego sprzetu.",
+    "harmonic_anomaly_count": 0,
+    "torsion_spike_count": 0,
+    "torsion_max_abs": 0.18393727445400296,
+    "ringdown": null
+  },
+  "axis_2": {
+    "level": "OK",
+    "message": "Os axis_2: brak wykrytych anomalii.",
+    "description": "Os axis_2 (2000 probek): status OK. Brak anomalii reszty modelu harmonicznego ani skokow torsji portretu fazowego. To jest opis statystyczny wyjscia pipeline'u TIMDR na danych SYNTETYCZNYCH, NIE zwalidowana diagnoza mechaniczna prawdziwego sprzetu.",
+    "harmonic_anomaly_count": 0,
+    "torsion_spike_count": 0,
+    "torsion_max_abs": 0.2329308479305032,
+    "ringdown": null
+  },
+  "axis_3": {
+    "level": "DEFECT",
+    "message": "Os axis_3: 88 anomalii reszty modelu harmonicznego wykrytych w oknie analizy (prog: 3) - mozliwy postepujacy luz mechaniczny (backlash).",
+    "description": "Os axis_3 (2000 probek): status DEFECT. Wykryto 88 anomalii reszty modelu harmonicznego (accel vs. -omega^2*pozycja). Wykryto 5 skoki torsji portretu fazowego (geometria: pozycja-predkosc-przyspieszenie). To jest opis statystyczny wyjscia pipeline'u TIMDR na danych SYNTETYCZNYCH, NIE zwalidowana diagnoza mechaniczna prawdziwego sprzetu.",
+    "harmonic_anomaly_count": 88,
+    "torsion_spike_count": 5,
+    "torsion_max_abs": 83.72690484775502,
+    "ringdown": {
+      "baseline": -46.87568391116416,
+      "noise_floor": 509.93667818046686,
+      "is_oscillatory": false,
+      "n_crossings": 0,
+      "n_peaks_used": 1,
+      "period_s": null,
+      "frequency_hz": null,
+      "log_decrement": null,
+      "damping_ratio": null,
+      "peak_times": [
+        18.61
+      ],
+      "peak_amplitudes": [
+        603.7840435644459
+      ]
+    }
+  },
+  "axis_4": {
+    "level": "OK",
+    "message": "Os axis_4: brak wykrytych anomalii.",
+    "description": "Os axis_4 (2000 probek): status OK. Brak anomalii reszty modelu harmonicznego ani skokow torsji portretu fazowego. To jest opis statystyczny wyjscia pipeline'u TIMDR na danych SYNTETYCZNYCH, NIE zwalidowana diagnoza mechaniczna prawdziwego sprzetu.",
+    "harmonic_anomaly_count": 0,
+    "torsion_spike_count": 0,
+    "torsion_max_abs": 0.35509240626701655,
+    "ringdown": null
+  },
+  "axis_5": {
+    "level": "SUSPECT",
+    "message": "Os axis_5: 1 skokow torsji portretu fazowego bez potwierdzonego defektu/rezonansu - wymaga uwagi.",
+    "description": "Os axis_5 (2000 probek): status SUSPECT. Wykryto 1 skoki torsji portretu fazowego (geometria: pozycja-predkosc-przyspieszenie). To jest opis statystyczny wyjscia pipeline'u TIMDR na danych SYNTETYCZNYCH, NIE zwalidowana diagnoza mechaniczna prawdziwego sprzetu.",
+    "harmonic_anomaly_count": 0,
+    "torsion_spike_count": 1,
+    "torsion_max_abs": 0.44065159496130685,
+    "ringdown": {
+      "baseline": 0.010223364568648134,
+      "noise_floor": 0.10190075213555927,
+      "is_oscillatory": false,
+      "n_crossings": 1,
+      "n_peaks_used": 3,
+      "period_s": null,
+      "frequency_hz": null,
+      "log_decrement": null,
+      "damping_ratio": null,
+      "peak_times": [
+        13.72,
+        13.77,
+        13.77
+      ],
+      "peak_amplitudes": [
+        -0.12176891840975934,
+        0.12484823582083926,
+        0.12484823582083926
+      ]
+    }
+  },
+  "_summary": "Podsumowanie scenariusza (6 osi): DEFECT: axis_3 | SUSPECT: axis_0, axis_5 | OK: axis_1, axis_2, axis_4. Dane syntetyczne - patrz README, sekcja 'Status walidacji'.",
+  "_negative_control": {
+    "n_trials": 20,
+    "n_false_positive": 0,
+    "false_positive_rate": 0.0,
+    "disclaimer": "Podstawowy test poczytalnosci na czystych danych syntetycznych, NIE formalny test permutacyjny/null-model. Wysoki odsetek falszywych alarmow tutaj oznacza, ze progi (torsion_factor, harmonic_anomaly_factor) sa za czule na TEN typ syntetycznego sygnalu - nie mowi nic o zachowaniu na prawdziwym sprzecie."
+  },
+  "_reaction_log": [
+    {
+      "axis_id": "axis_0",
+      "action": "log_info",
+      "detail": "Os axis_0: 1 skokow torsji portretu fazowego bez potwierdzonego defektu/rezonansu - wymaga uwagi."
+    },
+    {
+      "axis_id": "axis_3",
+      "action": "reduce_speed",
+      "detail": "symulacja: predkosc osi axis_3 x0.5"
+    },
+    {
+      "axis_id": "axis_3",
+      "action": "increase_damping",
+      "detail": "symulacja: tlumienie osi axis_3 x2.0"
+    },
+    {
+      "axis_id": "axis_3",
+      "action": "stop_axis",
+      "detail": "symulacja: zatrzymanie osi axis_3"
+    },
+    {
+      "axis_id": "axis_3",
+      "action": "alarm",
+      "detail": "symulacja: alarm dla osi axis_3"
+    },
+    {
+      "axis_id": "axis_3",
+      "action": "log_critical",
+      "detail": "Os axis_3: 88 anomalii reszty modelu harmonicznego wykrytych w oknie analizy (prog: 3) - mozliwy postepujacy luz mechaniczny (backlash)."
+    },
+    {
+      "axis_id": "axis_5",
+      "action": "log_info",
+      "detail": "Os axis_5: 1 skokow torsji portretu fazowego bez potwierdzonego defektu/rezonansu - wymaga uwagi."
+    }
+  ]
+}

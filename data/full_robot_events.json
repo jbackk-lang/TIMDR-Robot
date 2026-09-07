@@ -1,0 +1,42 @@
+{
+  "axis_0": {
+    "level": "SUSPECT",
+    "message": "Os axis_0: 1 skokow torsji portretu fazowego bez potwierdzonego defektu/rezonansu - wymaga uwagi."
+  },
+  "axis_1": {
+    "level": "OK",
+    "message": "Os axis_1: brak wykrytych anomalii."
+  },
+  "axis_2": {
+    "level": "OK",
+    "message": "Os axis_2: brak wykrytych anomalii."
+  },
+  "axis_3": {
+    "level": "DEFECT",
+    "message": "Os axis_3: 88 anomalii reszty modelu harmonicznego wykrytych w oknie analizy (prog: 3) - mozliwy postepujacy luz mechaniczny (backlash)."
+  },
+  "axis_4": {
+    "level": "OK",
+    "message": "Os axis_4: brak wykrytych anomalii."
+  },
+  "axis_5": {
+    "level": "SUSPECT",
+    "message": "Os axis_5: 1 skokow torsji portretu fazowego bez potwierdzonego defektu/rezonansu - wymaga uwagi."
+  },
+  "gripper_0": {
+    "level": "DEFECT",
+    "message": "Chwytak gripper_0: 96 anomalii wykrytych w oknie analizy (prog: 5)."
+  },
+  "mobile_base_0": {
+    "level": "DEFECT",
+    "message": "Podstawa mobilna mobile_base_0: 423 anomalii wykrytych w oknie analizy (prog: 10)."
+  },
+  "camera_0": {
+    "level": "DEFECT",
+    "message": "Kamera camera_0: 117 anomalii wykrytych w oknie analizy (prog: 5)."
+  },
+  "power_0": {
+    "level": "DEFECT",
+    "message": "Zasilanie power_0: 699 anomalii dryftu termicznego (nachylenie: 0.252) - mozliwy rozbiegajacy sie wzrost temperatury."
+  }
+}
