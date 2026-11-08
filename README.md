@@ -1,5 +1,9 @@
 # TIMDR-Robot
 
+<!-- TIMDR HUB LINKS -->
+> **Ekosystem TIMDR:** [Knowledge Hub — dokumentacja i wyszukiwarka](https://jbackk-lang.github.io/TIMDR-AI-Knowledge-Base/) · [Panel badawczy](https://jbackk-lang.github.io/) · [GIA-TIMDR — źródła](https://github.com/jbackk-lang/GIA-TIMDR) · [Research AI — lokalne wyszukiwanie semantyczne](https://github.com/jbackk-lang/TIMDR-AI-Knowledge-Base). Publiczna wyszukiwarka Huba jest tekstowa; semantyczna wymaga lokalnego uruchomienia.
+<!-- /TIMDR HUB LINKS -->
+
 Szkielet warstwy TIMDR dla robota wieloosiowego (np. ramienia) i jego
 podsystemow (chwytak, podstawa mobilna, kamera, zasilanie) - wykrywanie
 anomalii na podstawie syntetycznych danych z enkoderow/IMU/czujnikow, z
